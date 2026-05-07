@@ -1,4 +1,4 @@
 streamlit
+streamlit-autorefresh
 selenium
 beautifulsoup4
-streamlit-autorefresh
