@@ -18,7 +18,7 @@ st.title("🏫 Monitor SP18 v5.5 - Tryb Czuwania")
 
 # --- INTERFEJS ---
 target_name = st.text_input("Nauczyciel:", "Pielok-Opara")
-auto_refresh = st.checkbox("Włącz tryb czuwania (auto-odświeżanie co 10 min)", value=True)
+auto_refresh = st.checkbox("Włącz tryb czuwania (auto-odświeżanie co 2 min)", value=True)
 check_now = st.button("🔍 SPRAWDŹ TERAZ")
 
 def get_substitutions(name):
@@ -117,12 +117,12 @@ if check_now or (auto_refresh and 'trigger_auto' in st.query_params):
 
 # --- SKRYPT AUTO-ODŚWIEŻANIA (JavaScript) ---
 if auto_refresh:
-    # 600000 ms = 10 minut
+    # 30000 ms = 2 minut
     st.components.v1.html("""
         <script>
         setTimeout(function(){
             window.parent.document.querySelector('button[kind="primary"]').click();
-        }, 600000); 
+        }, 30000); 
         </script>
     """, height=0)
     st.caption("⏱️ Tryb czuwania aktywny: sprawdzanie co 10 minut.")
