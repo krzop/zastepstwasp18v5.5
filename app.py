@@ -7,16 +7,20 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 
-# --- KONFIGURACJA ---
-st.set_page_config(page_title="Monitor SP18 v5.7.3", page_icon="🏫")
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Monitor SP18 v5.8", page_icon="🏫", layout="centered")
 
-# Pamięć sesji
+# Inicjalizacja pamięci sesji (dla braku powtórzeń głosu)
 if 'last_data' not in st.session_state:
     st.session_state.last_data = "START"
 
-st.title("🏫 Monitor SP18 v5.7.3")
-target_name = st.text_input("Nauczyciel:", "Pielok-Opara")
+st.title("🏫 Monitor SP18 v5.8 - Auto-Czuwanie")
+st.markdown("Wersja oparta na stabilnym silniku v5.4")
 
+# --- INTERFEJS ---
+target_name = st.text_input("Wpisz nazwisko nauczyciela:", "Pielok-Opara")
+
+# Funkcja get_substitutions - KOPIA 1:1 Z TWOJEJ DZIAŁAJĄCEJ WERSJI v5.4
 def get_substitutions(name):
     url = "https://sp18.chorzow.pl/substitution/"
     options = Options()
@@ -24,7 +28,9 @@ def get_substitutions(name):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080") # Dodane dla stabilności klikania
+    options.add_argument("--disable-extensions")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--blink-settings=imagesEnabled=false")
     
     driver = None
     try:
@@ -32,18 +38,12 @@ def get_substitutions(name):
         driver.set_page_load_timeout(30)
         driver.get(url)
         
-        # Czekamy na załadowanie strony
-        time.sleep(2) 
-        
-        # KLUCZOWY MOMENT: Próba kliknięcia przycisku
+        wait = WebDriverWait(driver, 20)
         try:
-            wait = WebDriverWait(driver, 15)
-            # Szukamy przycisku po tekście wewnątrz linku
-            btn = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Informacje dla nauczycieli")))
+            btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje dla nauczycieli')]")))
             driver.execute_script("arguments[0].click();", btn)
-            time.sleep(5) # Dajemy 5 sekund na przeładowanie tabeli (ważne!)
-        except Exception as e:
-            # Jeśli nie znajdzie przycisku, spróbujemy pobrać to co jest (może już widoczne)
+            time.sleep(4)
+        except Exception:
             pass
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -67,50 +67,65 @@ def get_substitutions(name):
         
         return raw_entries
     except Exception as e:
-        return f"Błąd: {str(e)}"
+        return f"Błąd połączenia: {str(e)}"
     finally:
         if driver:
             driver.quit()
 
-# --- LOGIKA WYKONANIA ---
-with st.spinner('Pobieram dane (silnik v5.4)...'):
+# --- LOGIKA AUTOMATYCZNA (Uruchamia się sama przy starcie i co 2 min) ---
+with st.spinner('Trwa pobieranie danych...'):
     results = get_substitutions(target_name)
     current_data_str = str(results)
-    speech_text = ""
+    full_speech_text = ""
 
-    # Zawsze wyświetlaj to, co pobrano
-    if isinstance(results, list):
-        if results:
-            st.warning(f"🔔 Znaleziono zmiany dla: {target_name}")
-            for p, i in results:
-                with st.expander(f"Lekcja {p}", expanded=True):
-                    st.write(f"**Opis:** {i.replace('➔', ' ➡️ ')}")
-                if current_data_str != st.session_state.last_data:
-                    speech_text += f"Lekcja {p}. " + i.replace(":", " klasa ", 1).replace("➔", " zamiana na ") + ". "
-        else:
-            st.success(f"✅ Brak zastępstw dla: {target_name}")
-            if current_data_str != st.session_state.last_data:
-                speech_text = f"Dla nazwiska {target_name} brak nowych zastępstw."
-
-    # Obsługa mowy (tylko gdy dane są nowe)
-    if speech_text:
+    # Sprawdzanie czy coś się zmieniło od ostatniego razu
+    should_speak = False
+    if current_data_str != st.session_state.last_data:
+        should_speak = True
         st.session_state.last_data = current_data_str
-        js_code = f"""
-            <script>
-            window.speechSynthesis.cancel();
-            var msg = new SpeechSynthesisUtterance("{speech_text.replace('"', '').replace("'", "")}");
-            msg.lang = 'pl-PL'; msg.rate = 0.9;
-            window.speechSynthesis.speak(msg);
-            </script>
-        """
-        st.components.v1.html(js_code, height=0)
 
-# --- AUTO-ODŚWIEŻANIE (2 MINUTY) ---
+    # Wyświetlanie danych (tak jak w v5.4)
+    if isinstance(results, str):
+        st.error(results)
+        if should_speak: full_speech_text = "Wystąpił błąd połączenia."
+    elif results:
+        st.warning(f"🔔 Znaleziono zmiany dla: **{target_name}**")
+        for p, i in results:
+            with st.expander(f"Lekcja {p}", expanded=True):
+                st.write(f"**Opis:** {i.replace('➔', ' ➡️ ')}")
+            if should_speak:
+                full_speech_text += f"Lekcja {p} " + i.replace(":", " klasa ", 1).replace("➔", " zamiana na ") + ". "
+    else:
+        st.success(f"✅ Brak zastępstw dla: **{target_name}**")
+        if should_speak:
+            full_speech_text = f"Dla nazwiska {target_name} brak nowych zastępstw. Masz czyste niebo."
+
+    # --- SEKCJA GŁOSU ---
+    if should_speak and full_speech_text:
+        js_text = full_speech_text.replace('"', '').replace("'", "").replace("\n", " ")
+        tts_html = f"""
+        <script>
+            window.speechSynthesis.cancel();
+            var msg = new SpeechSynthesisUtterance("{js_text}");
+            msg.lang = 'pl-PL';
+            msg.rate = 0.9;
+            window.speechSynthesis.speak(msg);
+        </script>
+        """
+        st.components.v1.html(tts_html, height=0)
+
+# --- AUTOMATYCZNE ODŚWIEŻANIE (Co 2 minuty) ---
+# Skrypt przeładowuje całą stronę, co wymusza ponowne uruchomienie get_substitutions
 st.components.v1.html("""
-    <script>
-    setTimeout(function(){ window.parent.location.reload(); }, 120000);
-    </script>
+<script>
+    setTimeout(function(){
+        window.parent.location.reload();
+    }, 120000);
+</script>
 """, height=0)
 
+if st.button("🔍 WYMUŚ SPRAWDZENIE TERAZ"):
+    st.rerun()
+
 st.divider()
-st.caption(f"v5.7.3 Stable Engine | {time.strftime('%H:%M:%S')}")
+st.caption(f"v5.8 Czuwanie | Silnik v5.4 | Ostatni skan: {time.strftime('%H:%M:%S')}")
