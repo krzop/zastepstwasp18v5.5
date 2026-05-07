@@ -8,16 +8,16 @@ from bs4 import BeautifulSoup
 import time
 
 # --- KONFIGURACJA ---
-st.set_page_config(page_title="Monitor SP18 v5.6.2", page_icon="🏫")
+st.set_page_config(page_title="Monitor SP18 v5.6.3", page_icon="🏫")
 
-# Inicjalizacja pamięci
+# Pamięć sesji (kluczowa dla braku powtórzeń audio)
 if 'last_data' not in st.session_state:
     st.session_state.last_data = ""
 
-st.title("🏫 Monitor SP18 v5.6.2")
+st.title("🏫 Monitor SP18 v5.6.3")
 
 target_name = st.text_input("Nauczyciel:", "Pielok-Opara")
-auto_mode = st.toggle("Tryb czuwania (auto-odświeżanie co 2 minuty)", value=True)
+auto_mode = st.toggle("Tryb czuwania (auto-odświeżanie 2 min)", value=True)
 
 def get_substitutions(name):
     url = "https://sp18.chorzow.pl/substitution/"
@@ -36,7 +36,7 @@ def get_substitutions(name):
         try:
             btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje dla nauczycieli')]")))
             driver.execute_script("arguments[0].click();", btn)
-            time.sleep(3)
+            time.sleep(4) # Czas na załadowanie tabeli
         except:
             pass
 
@@ -62,41 +62,28 @@ def get_substitutions(name):
         if driver:
             driver.quit()
 
-# --- GŁÓWNA LOGIKA ---
-manual_check = st.button("🔍 SPRAWDŹ TERAZ")
-
-# Mechanizm automatycznego wyzwalania (Refresh: 2 minuty)
-if auto_mode:
-    st.info("⏱️ Tryb czuwania aktywny. Następne sprawdzenie za 2 minuty.")
-    st.components.v1.html("""
-        <script>
-        setTimeout(function(){ 
-            window.parent.location.reload(); 
-        }, 120000);
-        </script>
-    """, height=0)
-
-# POBIERANIE (Działa zawsze przy starcie, przycisku lub automacie)
+# --- LOGIKA POBIERANIA (Zawsze przy starcie) ---
 with st.spinner('Pobieram dane...'):
     results = get_substitutions(target_name)
-    
     current_data_str = str(results)
     speech_text = ""
 
+    # PORÓWNANIE Z POPRZEDNIM SKANEM
     if current_data_str != st.session_state.last_data:
-        st.session_state.last_data = current_data_str
+        st.session_state.last_data = current_data_str # Zapamiętaj nową wersję
         
         if isinstance(results, list):
             if results:
-                st.warning(f"🔔 AKTUALIZACJA dla: {target_name}")
+                st.warning(f"🔔 AKTUALIZACJA: {target_name}")
                 for p, i in results:
                     with st.expander(f"Lekcja {p}", expanded=True):
                         st.write(f"Opis: {i.replace('➔', '➡️')}")
-                    speech_text += f"Lekcja {p} " + i.replace(":", " klasa ", 1).replace("➔", " zamiana na ") + ". "
+                    speech_text += f"Lekcja {p}. " + i.replace(":", " klasa ", 1).replace("➔", " zamiana na ") + ". "
             else:
                 st.success(f"✅ Brak zastępstw dla: {target_name}")
-                speech_text = f"Dla nazwiska {target_name} brak nowych zastępstw."
+                speech_text = "Brak nowych zastępstw."
         
+        # MÓW TYLKO GDY SĄ NOWE DANE
         if speech_text:
             clean_speech = speech_text.replace('"', '').replace("'", "")
             st.components.v1.html(f"""
@@ -107,14 +94,28 @@ with st.spinner('Pobieram dane...'):
                 </script>
             """, height=0)
     else:
-        # Wyświetlanie bez ponownego czytania
+        # DANE IDENTYCZNE - WYŚWIETLAJ, ALE MILCZ
         if isinstance(results, list) and results:
-            st.info("ℹ️ Plan bez zmian.")
+            st.info("ℹ️ Plan bez zmian (juz odczytany).")
             for p, i in results:
                 with st.expander(f"Lekcja {p}", expanded=False):
                     st.write(i)
         else:
-            st.success("✅ Brak zastępstw. Cisza.")
+            st.success("✅ Nadal brak zastępstw. Cisza.")
+
+# --- PRZYCISK RĘCZNY I AUTO-RELOAD ---
+if st.button("🔍 SPRAWDŹ TERAZ"):
+    st.rerun()
+
+if auto_mode:
+    st.caption("⏱️ Czuwanie aktywne: auto-sprawdzanie co 2 minuty.")
+    st.components.v1.html("""
+        <script>
+        setTimeout(function(){ 
+            window.parent.location.reload(); 
+        }, 120000);
+        </script>
+    """, height=0)
 
 st.divider()
-st.caption(f"v5.6.2 Instant Start | Co 2 min | {time.strftime('%H:%M:%S')}")
+st.caption(f"v5.6.3 | {time.strftime('%H:%M:%S')}")
