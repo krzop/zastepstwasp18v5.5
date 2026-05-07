@@ -7,30 +7,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 
-# PRÓBA IMPORTU LICZNIKA (z zabezpieczeniem)
-try:
-    from streamlit_autorefresh import st_autorefresh
-    refresh_available = True
-except ImportError:
-    refresh_available = False
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Monitor SP18 v5.7.2", page_icon="🏫")
 
-# --- KONFIGURACJA ---
-st.set_page_config(page_title="Monitor SP18 v5.7.1", page_icon="🏫")
-
-# 1. Mechanizm odświeżania (2 minuty)
-if refresh_available:
-    count = st_autorefresh(interval=120000, key="monitor_counter")
-else:
-    st.error("⚠️ Brak biblioteki 'streamlit-autorefresh' w requirements.txt!")
-    count = 0
-
-# 2. Inicjalizacja pamięci
 if 'last_data' not in st.session_state:
-    st.session_state.last_data = ""
+    st.session_state.last_data = "FIRST_RUN" # Wymuszenie czytania przy starcie
 
-st.title("🏫 Monitor SP18 v5.7.1")
+st.title("🏫 Monitor SP18 v5.7.2")
 target_name = st.text_input("Nauczyciel:", "Pielok-Opara")
-st.caption(f"🔄 Cykl odświeżania nr: {count} | Następny skan za ok. 2 min")
 
 def get_substitutions(name):
     url = "https://sp18.chorzow.pl/substitution/"
@@ -47,7 +31,7 @@ def get_substitutions(name):
         driver.get(url)
         wait = WebDriverWait(driver, 15)
         try:
-            # Kliknięcie przycisku na stronie szkoły
+            # Szukanie przycisku nauczycieli
             btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje dla nauczycieli')]")))
             driver.execute_script("arguments[0].click();", btn)
             time.sleep(4)
@@ -76,47 +60,60 @@ def get_substitutions(name):
         if driver:
             driver.quit()
 
-# --- LOGIKA WYKONANIA (Zawsze przy starcie i odświeżeniu) ---
-with st.spinner('Pobieranie aktualnych danych...'):
+# --- GŁÓWNA LOGIKA (URUCHAMIANA ZAWSZE) ---
+with st.spinner('Pobieram dane na start...'):
     results = get_substitutions(target_name)
     current_data_str = str(results)
     speech_text = ""
 
-    # Logika Audio: Mów tylko jeśli dane są nowe
+    # 1. Sprawdzanie czy dane są nowe lub czy to pierwszy start
     if current_data_str != st.session_state.last_data:
         st.session_state.last_data = current_data_str
         
         if isinstance(results, list):
             if results:
-                st.warning(f"🔔 NOWE ZMIANY dla: {target_name}")
+                st.warning(f"🔔 Znaleziono zmiany dla: {target_name}")
                 for p, i in results:
                     with st.expander(f"Lekcja {p}", expanded=True):
                         st.write(f"Opis: {i.replace('➔', '➡️')}")
                     speech_text += f"Lekcja {p}. " + i.replace(":", " klasa ", 1).replace("➔", " zamiana na ") + ". "
             else:
                 st.success(f"✅ Brak zastępstw dla: {target_name}")
-                speech_text = "Brak nowych zastępstw."
+                speech_text = f"Dla nazwiska {target_name} brak nowych zastępstw."
         
+        # 2. WYWOŁANIE GŁOSU (Zawsze przy zmianie/starcie)
         if speech_text:
-            st.components.v1.html(f"""
+            js_code = f"""
                 <script>
+                window.speechSynthesis.cancel();
                 var msg = new SpeechSynthesisUtterance("{speech_text.replace('"', '').replace("'", "")}");
-                msg.lang = 'pl-PL'; msg.rate = 0.9;
+                msg.lang = 'pl-PL';
+                msg.rate = 0.9;
                 window.speechSynthesis.speak(msg);
                 </script>
-            """, height=0)
+            """
+            st.components.v1.html(js_code, height=0)
     else:
-        # Dane identyczne - wyświetlamy po cichu
+        # DANE IDENTYCZNE - TYLKO WYŚWIETLANIE (CISZA)
         if isinstance(results, list) and results:
-            st.info("ℹ️ Plan bez zmian (już odczytany).")
+            st.info("ℹ️ Plan bez zmian.")
             for p, i in results:
                 with st.expander(f"Lekcja {p}", expanded=False):
                     st.write(i)
         else:
-            st.success("✅ Nadal brak zastępstw. Czuwam...")
+            st.success("✅ Nadal brak zastępstw. Czekam...")
 
-if st.button("🔍 WYMUŚ SPRAWDZENIE TERAZ"):
+# --- AUTOMATYCZNE ODŚWIEŻANIE (Co 2 minuty) ---
+st.components.v1.html("""
+    <script>
+    setTimeout(function(){
+        window.parent.location.reload();
+    }, 120000);
+    </script>
+""", height=0)
+
+if st.button("🔍 SPRAWDŹ TERAZ RĘCZNIE"):
     st.rerun()
 
 st.divider()
-st.caption(f"v5.7.1 | Ostatnia aktualizacja: {time.strftime('%H:%M:%S')}")
+st.caption(f"v5.7.2 Stable | Odświeżanie: 2 min | Ostatni skan: {time.strftime('%H:%M:%S')}")
