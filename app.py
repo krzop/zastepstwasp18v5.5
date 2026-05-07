@@ -6,18 +6,23 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
+from streamlit_autorefresh import st_autorefresh
 
 # --- KONFIGURACJA ---
-st.set_page_config(page_title="Monitor SP18 v5.6.3", page_icon="🏫")
+st.set_page_config(page_title="Monitor SP18 v5.7", page_icon="🏫")
 
-# Pamięć sesji (kluczowa dla braku powtórzeń audio)
+# 1. Licznik odświeżania (2 minuty = 120 000 ms)
+# Ten komponent zmusi Streamlit do przeładowania strony co 2 minuty
+count = st_autorefresh(interval=120000, key="fscounter")
+
+# 2. Inicjalizacja pamięci
 if 'last_data' not in st.session_state:
     st.session_state.last_data = ""
 
-st.title("🏫 Monitor SP18 v5.6.3")
+st.title("🏫 Monitor SP18 v5.7 - Smart Refresh")
 
 target_name = st.text_input("Nauczyciel:", "Pielok-Opara")
-auto_mode = st.toggle("Tryb czuwania (auto-odświeżanie 2 min)", value=True)
+st.caption(f"Status: Czuwanie aktywne. Odświeżenie nr: {count}")
 
 def get_substitutions(name):
     url = "https://sp18.chorzow.pl/substitution/"
@@ -36,7 +41,7 @@ def get_substitutions(name):
         try:
             btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje dla nauczycieli')]")))
             driver.execute_script("arguments[0].click();", btn)
-            time.sleep(4) # Czas na załadowanie tabeli
+            time.sleep(4)
         except:
             pass
 
@@ -62,15 +67,15 @@ def get_substitutions(name):
         if driver:
             driver.quit()
 
-# --- LOGIKA POBIERANIA (Zawsze przy starcie) ---
-with st.spinner('Pobieram dane...'):
+# --- LOGIKA WYKONANIA ---
+with st.spinner('Sprawdzam stronę szkoły...'):
     results = get_substitutions(target_name)
     current_data_str = str(results)
     speech_text = ""
 
-    # PORÓWNANIE Z POPRZEDNIM SKANEM
+    # Sprawdzamy czy dane różnią się od zapamiętanych
     if current_data_str != st.session_state.last_data:
-        st.session_state.last_data = current_data_str # Zapamiętaj nową wersję
+        st.session_state.last_data = current_data_str
         
         if isinstance(results, list):
             if results:
@@ -83,39 +88,25 @@ with st.spinner('Pobieram dane...'):
                 st.success(f"✅ Brak zastępstw dla: {target_name}")
                 speech_text = "Brak nowych zastępstw."
         
-        # MÓW TYLKO GDY SĄ NOWE DANE
+        # Mówimy tylko przy starcie lub gdy dane się zmieniły
         if speech_text:
-            clean_speech = speech_text.replace('"', '').replace("'", "")
-            st.components.v1.html(f"""
+            js_speech = f"""
                 <script>
-                var msg = new SpeechSynthesisUtterance("{clean_speech}");
+                var msg = new SpeechSynthesisUtterance("{speech_text.replace('"', '').replace("'", "")}");
                 msg.lang = 'pl-PL'; msg.rate = 0.9;
                 window.speechSynthesis.speak(msg);
                 </script>
-            """, height=0)
+            """
+            st.components.v1.html(js_speech, height=0)
     else:
-        # DANE IDENTYCZNE - WYŚWIETLAJ, ALE MILCZ
+        # Brak zmian - wyświetlamy po cichu
         if isinstance(results, list) and results:
-            st.info("ℹ️ Plan bez zmian (juz odczytany).")
+            st.info("ℹ️ Plan bez zmian.")
             for p, i in results:
                 with st.expander(f"Lekcja {p}", expanded=False):
                     st.write(i)
         else:
-            st.success("✅ Nadal brak zastępstw. Cisza.")
-
-# --- PRZYCISK RĘCZNY I AUTO-RELOAD ---
-if st.button("🔍 SPRAWDŹ TERAZ"):
-    st.rerun()
-
-if auto_mode:
-    st.caption("⏱️ Czuwanie aktywne: auto-sprawdzanie co 2 minuty.")
-    st.components.v1.html("""
-        <script>
-        setTimeout(function(){ 
-            window.parent.location.reload(); 
-        }, 120000);
-        </script>
-    """, height=0)
+            st.success("✅ Brak zastępstw. Czekam na zmiany...")
 
 st.divider()
-st.caption(f"v5.6.3 | {time.strftime('%H:%M:%S')}")
+st.caption(f"v5.7 | Ostatni skan: {time.strftime('%H:%M:%S')}")
