@@ -125,7 +125,7 @@ if auto_refresh:
         }, 30000); 
         </script>
     """, height=0)
-    st.caption("⏱️ Tryb czuwania aktywny: sprawdzanie co 10 minut.")
+    st.caption("⏱️ Tryb czuwania aktywny: sprawdzanie co 2 minuty.")
 
 st.divider()
 st.caption(f"v5.5 Smart Watch | Ostatnie sprawdzenie: {time.strftime('%H:%M:%S')}")
